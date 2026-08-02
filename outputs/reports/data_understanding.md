@@ -1,5 +1,5 @@
 Rows: 4009 | Columns: 12
-**Duplicates: **0
+Duplicates: 0
 |              | Data Types   |   Missing Values |
 |:-------------|:-------------|-----------------:|
 | brand        | str          |                0 |
