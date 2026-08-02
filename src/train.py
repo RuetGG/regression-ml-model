@@ -1,10 +1,13 @@
+import os
 import time
+import joblib
 import numpy as np
 import pandas as pd
 from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import Lasso, LinearRegression, Ridge
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
@@ -16,7 +19,6 @@ def get_preprocessor(scale_numeric=True):
     categorical_features=[
         'brand',
         'fuel_type',               
-        'transmission',           
         'accident',                
         'clean_title',
         'num_gears',
@@ -30,6 +32,7 @@ def get_preprocessor(scale_numeric=True):
         "engine_hp",
         "engine_size_l",
         "engine_cylinders",
+        "luxury_brand"
     ]
 
     num_steps = [("imputer", SimpleImputer(strategy="median"))]
@@ -60,52 +63,109 @@ def get_preprocessor(scale_numeric=True):
     )
 
 
-def train_models(data_path="data/used_cars_clean_fe.csv"):
+def train_models(data_path="data/used_cars_clean_fe.csv",
+                 model_output="models/best_model.pkl",
+                 metrics_output="outputs/metrics/model_comparison.csv"):
+    
+    print("=" * 65)
+    print(" AUTOMATED MODEL TRAINING & EVALUATION PIPELINE")
+    print("=" * 65)
+    
     df = pd.read_csv(data_path)
+    print(f"[INFO] Raw Dataset Shape: {df.shape}")
 
-    # Separate target and features
+    # 1. Trimming 1% top & bottom price outliers
+    lower_limit = df["price"].quantile(0.01)
+    upper_limit = df["price"].quantile(0.99)
+    df = df[(df["price"] >= lower_limit) & (df["price"] <= upper_limit)].copy()
+    print(f"[INFO] Shape After 1% Outlier Trimming: {df.shape}")
+
+    # Feature & Target Selection
     X = df.drop(columns=["price"])
-    y = np.log1p(df["price"])
+    y_raw = df["price"]
+    y_log = np.log1p(y_raw)
 
-    # 80/20 train-test split
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42
+    # Train/Test Split
+    X_train, X_test, y_train_log, y_test_log = train_test_split(
+        X, y_log, test_size=0.2, random_state=42
     )
+    y_test_real = np.expm1(y_test_log)
 
-    # Define all 7 regressors and whether they require scaling
+    # Regressors dictionary: (Estimator, Scale Numeric Features)
     models = {
         "Linear Regression": (LinearRegression(), True),
-        "Ridge Regression": (Ridge(alpha=1.0), True),
-        "Lasso Regression": (Lasso(alpha=0.1), True),
-        "Support Vector Regressor": (SVR(C=1.0), True),
-        "Random Forest": (RandomForestRegressor(n_estimators=100, max_depth=12, min_samples_leaf=5, random_state=42), False),
-        "Gradient Boosting": (GradientBoostingRegressor(n_estimators=100, max_depth=5, learning_rate=0.05, random_state=42), False),
+        "Ridge Regression": (Ridge(alpha=10.0), True),
+        "Lasso Regression": (Lasso(alpha=0.01, max_iter=10000), True),
+        "Support Vector Regressor": (SVR(C=1.0, epsilon=0.1), True),
         "Decision Tree": (DecisionTreeRegressor(max_depth=10, min_samples_leaf=10, random_state=42), False),
+        "Random Forest": (RandomForestRegressor(n_estimators=100, max_depth=12, min_samples_leaf=5, random_state=42, n_jobs=-1), False),
+        "Gradient Boosting": (GradientBoostingRegressor(n_estimators=100, max_depth=5, learning_rate=0.05, random_state=42), False)
     }
 
-    trained_pipelines = {}
     results = []
+    best_score = -float("inf")
+    best_pipeline = None
 
     for name, (model, scale_numeric) in models.items():
         preprocessor = get_preprocessor(scale_numeric=scale_numeric)
-        pipeline = Pipeline(
-            steps=[("preprocessor", preprocessor), ("regressor", model)]
-        )
+        pipeline = Pipeline([
+            ("preprocessor", preprocessor),
+            ("regressor", model)
+        ])
 
-        # Fit and measure training time
         start_time = time.time()
-        pipeline.fit(X_train, y_train)
-        elapsed_time = time.time() - start_time
+        pipeline.fit(X_train, y_train_log)
+        train_time = time.time() - start_time
 
-        trained_pipelines[name] = pipeline
-        results.append({"Model": name, "Train Time (s)": round(elapsed_time, 4)})
-        print(f"[{name}] Trained in {elapsed_time:.4f}s")
+        # Predict (Log Scale)
+        t0 = time.time()
+        preds_log = pipeline.predict(X_test)
+        pred_time = time.time() - t0
 
-    summary_df = pd.DataFrame(results)
-    return trained_pipelines, summary_df, (X_train, X_test, y_train, y_test)
+        # Predict (Real Dollar Scale)
+        preds_real = np.expm1(preds_log)
+
+        # Metrics Computation
+        r2_log = r2_score(y_test_log, preds_log)
+        mae_real = mean_absolute_error(y_test_real, preds_real)
+        mse_real = mean_squared_error(y_test_real, preds_real)
+        rmse_real = np.sqrt(mse_real)
+
+        results.append({
+            "Model": name,
+            "Test R2": round(r2_log, 4),
+            "Test MAE ($)": round(mae_real, 2),
+            "Test MSE ($)": round(mse_real, 2),
+            "Test RMSE ($)": round(rmse_real, 2),
+            "Train Time (s)": round(train_time, 4),
+            "Pred Time (s)": round(pred_time, 4)
+        })
+
+        print(f"[{name}] Completed in {train_time:.2f}s | Test R2: {r2_log:.4f} | MAE: ${mae_real:,.2f}")
+
+        # Track best model based on log-scale R2 stability
+        if r2_log > best_score:
+            best_score = r2_log
+            best_pipeline = pipeline
+
+    # Export Metrics Table
+    results_df = pd.DataFrame(results).sort_values(by="Test R2", ascending=False).reset_index(drop=True)
+
+    print("\n" + "=" * 65)
+    print("FINAL MODEL EVALUATION SUMMARY")
+    print("=" * 65)
+    print(results_df.to_string(index=False))
+
+    # Save Pipeline and Metrics Artifacts
+    os.makedirs(os.path.dirname(model_output), exist_ok=True)
+    os.makedirs(os.path.dirname(metrics_output), exist_ok=True)
+
+    joblib.dump(best_pipeline, model_output)
+    results_df.to_csv(metrics_output, index=False)
+
+    print(f"\n[ARTIFACT] Saved Best Pipeline -> {model_output}")
+    print(f"[ARTIFACT] Saved Benchmark CSV  -> {metrics_output}")
 
 
 if __name__ == "__main__":
-    pipelines, summary, _ = train_models()
-    print("\n--- Training Summary ---")
-    print(summary)
+    train_models()
