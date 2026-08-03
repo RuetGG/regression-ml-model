@@ -6,8 +6,30 @@ def feature_engineering(input_path="data/used_cars_clean.csv", output_path="data
     df = pd.read_csv(input_path)
     df = df.copy()
     
+    # UPDATED: Fix split brand names (Land Rover, Aston Martin)
+    if "brand" in df.columns:
+        brand_str = df["brand"].astype(str).str.lower()
+        df.loc[brand_str == "land", "brand"] = "land rover"
+        df.loc[brand_str == "aston", "brand"] = "aston martin"
+    
+
     # Car age 
     df['car_age'] = 2026 - df["model_year"]
+
+    # UPDATED: Add vehicle age category START
+    bins = [-1, 3, 7, 12, 100]
+    labels = ["new", "recent", "mature", "old"]
+    df["vehicle_age_category"] = pd.cut(
+        df["car_age"], bins=bins, labels=labels
+    ).astype(str)
+
+
+    # UPDATED: Add mileage per year START ===
+    mileage_col = "mileage" if "mileage" in df.columns else "milage"
+    if mileage_col in df.columns:
+        age_denominator = df["car_age"].clip(lower=1)
+        df["mileage_per_year"] = df[mileage_col] / age_denominator
+
     
     # Luxury Brands 
     luxury_brands = {
