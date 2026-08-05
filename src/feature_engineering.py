@@ -1,13 +1,17 @@
 import pandas as pd
 import numpy as np
 
-def feature_engineering(input_path="data/used_cars_clean.csv", output_path="data/used_cars_clean_fe.csv"):
+def feature_engineering(input_path="../data/used_cars_clean.csv", output_path="../data/used_cars_clean_fe.csv"):
     
     df = pd.read_csv(input_path)
     df = df.copy()
     
     # Car age 
     df['car_age'] = 2026 - df["model_year"]
+    
+    if 'milage' in df.columns:
+        age_denominator = df["car_age"].clip(lower=1)
+        df["milage_per_year"] = df['milage'] / age_denominator
     
     # Luxury Brands 
     luxury_brands = {
@@ -33,6 +37,34 @@ def feature_engineering(input_path="data/used_cars_clean.csv", output_path="data
     }
     
     df['luxury_brand'] = (df['brand'].isin(luxury_brands).astype(int))
+    
+    trans_str = df["transmission"].astype(str).str.lower()
+    # Extract numerical gear counts (e.g., 6, 8, 10) into a separate column
+    gears_extracted = trans_str.str.extract(r'(\d+)')[0]
+    df['num_gears'] = pd.to_numeric(gears_extracted, errors='coerce') 
+    
+    
+    # Helper function for row-by-row mapping
+    def map_transmission(text):
+        if pd.isna(text) or text == 'nan':
+            return np.nan
+        
+        # Check for junk text first
+        if 'scheduled' in text or 'production' in text:
+            return np.nan
+        
+        # Priority mapping
+        if any(term in text for term in ['m/t', 'manual', ' mt ']) or text.endswith(' mt'):
+            return 'manual'
+        elif 'cvt' in text or 'variable' in text:
+            return 'cvt'
+        elif any(term in text for term in ['a/t', 'auto', 'shift mode', 'dct']):
+            return 'automatic'
+        else:
+            return np.nan  # Returns NaN for unmapped/unknown values
+
+    # Apply the mapping function
+    df["transmission_type"] = trans_str.apply(map_transmission)
     
     # Engine parsing (HP, Engine Size, Cylinders)
     engine_str = df["engine"].astype(str).str.lower()

@@ -13,6 +13,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from sklearn.svm import SVR
 from sklearn.tree import DecisionTreeRegressor
+import shap
 
 
 def get_preprocessor(scale_numeric=True):
@@ -21,18 +22,20 @@ def get_preprocessor(scale_numeric=True):
         'fuel_type',               
         'accident',                
         'clean_title',
-        'num_gears',
         'transmission_type'             
     ]
     
     numeric_features = [
         "milage",
         "model_year",
+        'milage_per_year',
+        'num_gears',
         "car_age",
         "engine_hp",
         "engine_size_l",
         "engine_cylinders",
-        "luxury_brand"
+        "luxury_brand", 
+        'is_turbo'
     ]
 
     num_steps = [("imputer", SimpleImputer(strategy="median"))]
@@ -63,22 +66,15 @@ def get_preprocessor(scale_numeric=True):
     )
 
 
-def train_models(data_path="data/used_cars_clean_fe.csv",
-                 model_output="models/best_model.pkl",
-                 metrics_output="outputs/metrics/model_comparison.csv"):
+def train_models(data_path="../data/used_cars_clean_fe.csv",
+                 model_output="../models/best_model.pkl",
+                 metrics_output="../outputs/metrics/model_comparison.csv"):
     
     print("=" * 65)
     print(" AUTOMATED MODEL TRAINING & EVALUATION PIPELINE")
     print("=" * 65)
     
     df = pd.read_csv(data_path)
-    print(f"[INFO] Raw Dataset Shape: {df.shape}")
-
-    # 1. Trimming 1% top & bottom price outliers
-    lower_limit = df["price"].quantile(0.01)
-    upper_limit = df["price"].quantile(0.99)
-    df = df[(df["price"] >= lower_limit) & (df["price"] <= upper_limit)].copy()
-    print(f"[INFO] Shape After 1% Outlier Trimming: {df.shape}")
 
     # Feature & Target Selection
     X = df.drop(columns=["price"])
@@ -165,7 +161,6 @@ def train_models(data_path="data/used_cars_clean_fe.csv",
 
     print(f"\n[ARTIFACT] Saved Best Pipeline -> {model_output}")
     print(f"[ARTIFACT] Saved Benchmark CSV  -> {metrics_output}")
-
 
 if __name__ == "__main__":
     train_models()

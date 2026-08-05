@@ -57,6 +57,34 @@ def generate_graphs(df_path, output_dir="outputs/figures"):
         plt.close()
 
     print("Saved plots to", output_dir)
+    
+def model_comparision(metrics_output):
+    # 2. Load the exported metrics summary table
+    df = pd.read_csv(metrics_output)
+
+    # 3. Plot Comparison Grid
+    os.makedirs("../outputs/figures", exist_ok=True)
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+    axes = axes.flatten()
+
+    plots = [
+        ("Test R2", "R² Score (Higher is Better)", True),
+        ("Test RMSE ($)", "RMSE ($) (Lower is Better)", False),
+        ("Test MAE ($)", "MAE ($) (Lower is Better)", False),
+        ("Train Time (s)", "Training Time (s) (Lower is Better)", False)
+    ]
+
+    for i, (col, title, higher_is_better) in enumerate(plots):
+        # Sort models based on metric preference for horizontal bar chart visual clarity
+        df_sorted = df.sort_values(by=col, ascending=higher_is_better)
+        
+        axes[i].barh(df_sorted["Model"], df_sorted[col], color="steelblue")
+        axes[i].set_title(title, fontsize=12, fontweight="bold")
+        axes[i].grid(axis="x", linestyle="--", alpha=0.7)
+
+    plt.tight_layout()
+    plt.savefig("../outputs/figures/comparison.png", dpi=300)
+    plt.show()
 
 
 if __name__ == "__main__":
