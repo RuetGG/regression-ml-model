@@ -13,7 +13,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from sklearn.svm import SVR
 from sklearn.tree import DecisionTreeRegressor
-import shap
+from sklearn.inspection import permutation_importance
 
 
 def get_preprocessor(scale_numeric=True):
@@ -156,6 +156,26 @@ def train_models(data_path="../data/used_cars_clean_fe.csv",
     os.makedirs(os.path.dirname(model_output), exist_ok=True)
     os.makedirs(os.path.dirname(metrics_output), exist_ok=True)
 
+
+    feature_names = best_pipeline.named_steps["preprocessor"].get_feature_names_out()
+
+    importance = permutation_importance(
+        best_pipeline,
+        X_test,
+        y_test_log,
+        n_repeats=5,
+        random_state=42,
+        scoring="r2"
+    )
+
+    importance_df = pd.DataFrame({
+        "Feature": X_test.columns,
+        "Importance": importance.importances_mean
+    }).sort_values("Importance", ascending=False)
+
+    print("\nFEATURE IMPORTANCE")
+    print(importance_df.to_string(index=False))
+    
     joblib.dump(best_pipeline, model_output)
     results_df.to_csv(metrics_output, index=False)
 
